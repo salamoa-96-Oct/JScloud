@@ -1,0 +1,34 @@
+name: Auto Assign Reviewer
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  assign-reviewer:
+    name: Assign Random Reviewer
+    runs-on: jscloud-github-action-runner-set
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install @actions/github @actions/core yaml
+
+      - name: Assign reviewer
+        run: |
+          node .github/scripts/assign-reviewer.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify reviewer on Teams
+        if: success()
+        run: |
+          node .github/scripts/notify-reviewer.js
+        env:
+          MSTEAMS_WEBHOOK: ${{ secrets.MSTEAMS_WEBHOOK }} 

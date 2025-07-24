@@ -1,14 +1,12 @@
 # JScloud
 
-AWS 클라우드 인프라 자동화 및 관리 도구 모음집입니다. 이 저장소는 다양한 AWS 서비스와 관련된 Terraform 모듈, Python 스크립트, 그리고 인프라 자동화 솔루션들을 포함하고 있습니다.
+AWS 클라우드 인프라 자동화 및 관리 도구 모음집입니다. 이 저장소는 다양한 AWS 서비스와 관련된 Terraform 모듈, Python 스크립트, GitHub Actions Runner 설정, 그리고 인프라 자동화 솔루션들을 포함하고 있습니다.
 
 ## 프로젝트 목적
 
 이 저장소는 AWS 인프라 관리에 필요한 다양한 도구들을 체계적으로 정리하고, 다른 개발자들이 참고할 수 있도록 구성되었습니다. 각 프로젝트는 독립적으로 사용할 수 있으며, 필요에 따라 조합하여 사용할 수 있습니다.
 
 ## 프로젝트 구조
-
-### 디렉토리 구조
 
 ```
 JScloud/
@@ -17,50 +15,28 @@ JScloud/
 ├── github-action/               # GitHub Actions Runner 관련 프로젝트
 │   ├── dockerfile              # 커스텀 GitHub Actions Runner 이미지
 │   ├── gha-runner-scale-set/   # AutoScalingRunnerSet Helm 차트
-│   └── gha-runner-scale-set-controller/  # Actions Runner Controller Helm 차트
+│   ├── gha-runner-scale-set-controller/  # Actions Runner Controller Helm 차트
+│   └── .github/                # GitHub Actions 워크플로우
+│       ├── workflows/          # CI/CD 워크플로우
+│       ├── scripts/            # 자동화 스크립트
+│       └── reviewers.yml       # 리뷰어 설정
 ├── lambda/                      # AWS Lambda 관련 프로젝트
 │   ├── modules/                 # 재사용 가능한 Terraform 모듈
 │   │   └── cw-export/          # CloudWatch 로그 내보내기 모듈
-│   │       ├── README.md       # 모듈 사용법 및 문서
-│   │       ├── main.tf         # 모듈 메인 구성
-│   │       └── variables.tf    # 모듈 변수 정의
 │   ├── code/                   # Lambda 소스 코드
 │   │   └── python/            # Python Lambda 함수
-│   │       └── cw_logout_exporter.py  # Lambda 핸들러
 │   └── S3_Loggroup/           # 실제 배포 구성
-│       ├── main.tf            # 메인 Terraform 구성
-│       ├── vars.tf            # 변수 정의
-│       ├── backend.tf         # Terraform 백엔드 설정
-│       ├── data.tf            # 데이터 소스 정의
-│       └── output.tf          # 출력 값 정의
 └── python/                     # 독립 실행 Python 스크립트
     └── cw-to-s3/              # CloudWatch to S3 내보내기
-        ├── README.md          # 스크립트 사용법 및 문서
-        └── cw_logout_exporter_pod.py  # Pod 실행용 스크립트
 ```
 
-### Infrastructure as Code (Terraform)
+## 주요 컴포넌트
 
-#### [Lambda Modules](./lambda/modules/)
-AWS Lambda 함수 배포를 위한 재사용 가능한 Terraform 모듈들을 제공합니다.
+### 1. GitHub Actions Runner
 
-- **[CloudWatch Export Module](./lambda/modules/cw-export/README.md)**
-  - CloudWatch 로그를 S3로 자동 내보내는 Lambda 함수 배포
-  - EventBridge 스케줄링, IAM 역할 자동 생성
-  - VPC 설정 지원 및 완전한 인프라 자동화
-
-#### [Infrastructure Deployments](./lambda/)
-실제 인프라 배포를 위한 Terraform 구성 파일들입니다.
-
-- **[S3 Log Group Deployment](./lambda/S3_Loggroup/)**
-  - CloudWatch 로그 내보내기 인프라 전체 배포
-  - S3 버킷, Lambda 함수, IAM 역할, EventBridge 규칙 통합 구성
-
-### GitHub Actions Runner
-
-#### [Custom GitHub Actions Runner](./github-action/)
 AWS 환경에서 GitHub Actions Runner를 자동 스케일링으로 운영하기 위한 Helm 차트와 커스텀 Docker 이미지를 제공합니다.
 
+#### 구성 요소
 - **[Custom Runner Docker Image](./github-action/dockerfile)**
   - AWS CLI, kubectl, git, jq 등 개발 도구가 포함된 커스텀 Runner 이미지
   - ARM64 아키텍처 지원
@@ -68,7 +44,7 @@ AWS 환경에서 GitHub Actions Runner를 자동 스케일링으로 운영하기
 
 - **[AutoScalingRunnerSet Helm Chart](./github-action/gha-runner-scale-set/)**
   - GitHub Actions Runner 자동 스케일링 설정
-  - 개발/운영 환경별 설정 분리 (values-dev.yaml, values.yaml)
+  - 개발/운영 환경별 설정 분리
   - Kubernetes 기반 Runner 관리
 
 - **[Actions Runner Controller Helm Chart](./github-action/gha-runner-scale-set-controller/)**
@@ -76,9 +52,26 @@ AWS 환경에서 GitHub Actions Runner를 자동 스케일링으로 운영하기
   - Custom Resource Definitions (CRDs) 포함
   - Kubernetes 클러스터에서 Runner 관리
 
-### Python Scripts
+#### CI/CD 워크플로우
+- **자동 리뷰어 할당**: PR 생성 시 자동으로 리뷰어 할당
+- **리뷰 리마인더**: 평일 오후 2시에 리뷰 대기 중인 PR 알림
+- **개발 환경 CI/CD**: 자동 빌드, Docker 이미지 푸시, GitOps 업데이트
 
-#### [CloudWatch to S3 Exporter](./python/cw-to-s3/README.md)
+### 2. AWS Lambda & Infrastructure
+
+#### [CloudWatch Export Module](./lambda/modules/cw-export/)
+- CloudWatch 로그를 S3로 자동 내보내는 Lambda 함수 배포
+- EventBridge 스케줄링, IAM 역할 자동 생성
+- VPC 설정 지원 및 완전한 인프라 자동화
+
+#### [Infrastructure Deployments](./lambda/)
+- **[S3 Log Group Deployment](./lambda/S3_Loggroup/)**
+  - CloudWatch 로그 내보내기 인프라 전체 배포
+  - S3 버킷, Lambda 함수, IAM 역할, EventBridge 규칙 통합 구성
+
+### 3. Python Scripts
+
+#### [CloudWatch to S3 Exporter](./python/cw-to-s3/)
 - CloudWatch 로그를 S3로 내보내는 Python 스크립트
 - Lambda 15분 제한을 해결하기 위한 Pod 실행 환경 지원
 - 배치 처리 및 완료 대기 기능 포함
@@ -90,7 +83,7 @@ AWS 환경에서 GitHub Actions Runner를 자동 스케일링으로 운영하기
 - **Programming Language**: Python 3.9+
 - **Cloud Provider**: AWS
 - **Services**: Lambda, S3, CloudWatch, EventBridge, IAM
-- **Container**: Docker (선택사항)
+- **Container**: Docker
 - **Container Orchestration**: Kubernetes, Helm
 - **CI/CD**: GitHub Actions Runner
 
@@ -120,9 +113,9 @@ cd lambda/S3_Loggroup
 terraform init
 terraform apply
 
-# 2. Python 스크립트 직접 실행
+# 2. Python3 스크립트 직접 실행
 cd python/cw-to-s3
-python cw_logout_exporter_pod.py
+python3 cw_logout_exporter_pod.py
 ```
 
 ### 3. 환경 변수 설정
@@ -140,7 +133,22 @@ export PREFIX="cw-backup"
 - [CloudWatch Export Terraform Module](./lambda/modules/cw-export/README.md)
 - [CloudWatch to S3 Python Exporter](./python/cw-to-s3/README.md)
 
-## 🤝 기여하기
+## 보안 고려사항
+
+### 민감정보 관리
+- GitHub 토큰, AWS 키 등 민감정보는 GitHub Secrets 또는 Kubernetes Secret으로 관리
+- 설정 파일에 직접 민감정보를 하드코딩하지 않기
+- 환경별 설정 파일 분리 권장
+
+### 권장 .gitignore 설정
+```gitignore
+# 민감정보가 포함될 수 있는 파일들
+github-action/*/values-*.yaml
+github-action/*/secrets.yaml
+github-action/.github/reviewers.yml
+```
+
+## 기여하기
 
 이 프로젝트는 지속적으로 발전하고 있습니다. 새로운 기능이나 개선사항이 있다면 언제든지 기여해주세요!
 
@@ -154,12 +162,13 @@ export PREFIX="cw-backup"
 
 이 프로젝트는 MIT 라이선스 하에 배포됩니다.
 
-## 🔗 관련 링크
+## 관련 링크
 
 - [AWS CloudWatch Documentation](https://docs.aws.amazon.com/cloudwatch/)
 - [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
 - [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
+- [GitHub Actions Runner Controller](https://github.com/actions/actions-runner-controller)
 
 ---
 
-**💡 Tip**: 각 프로젝트는 독립적으로 사용할 수 있지만, 함께 사용하면 더욱 강력한 자동화 솔루션을 구축할 수 있습니다!
+**Tip**: 각 프로젝트는 독립적으로 사용할 수 있지만, 함께 사용하면 더욱 강력한 자동화 솔루션을 구축할 수 있습니다!

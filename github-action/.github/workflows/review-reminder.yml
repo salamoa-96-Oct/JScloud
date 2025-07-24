@@ -1,0 +1,28 @@
+name: Review Reminder
+
+on:
+  schedule:
+    - cron: "0 5 * * 1-5"  # UTC 기준 오전 5시 (한국 시간 오후 2시), 평일만
+
+jobs:
+  review-reminder:
+    name: Send Review Reminder
+    runs-on: jscloud-github-action-runner-set
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install @actions/github @actions/core yaml
+
+      - name: Send review reminder
+        run: |
+          node .github/scripts/review-reminder.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MSTEAMS_WEBHOOK: ${{ secrets.MSTEAMS_WEBHOOK }} 

@@ -1,0 +1,168 @@
+name: Dev CI/CD for partner-app
+
+on:
+  push:
+    paths:
+      - 'path-*/**'
+    branches:
+      - dev
+
+jobs:
+  detect-changes:
+    name: Detect Changed Applications
+    runs-on: jscloud-github-action-runner-set
+    outputs:
+      changed_apps: ${{ steps.set-matrix.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: set-matrix
+        run: |
+          echo "📦 Detecting changed applications..."
+          
+          # 변경된 파일들 확인
+          changed_files=$(git diff --name-only HEAD^ HEAD)
+          echo "Changed files:"
+          echo "$changed_files"
+          
+          # 변경된 애플리케이션 디렉토리 감지 (첫 번째 레벨 디렉토리만)
+          changed_dirs=$(echo "$changed_files" | grep '^[^/]*/' | cut -d'/' -f1 | sort -u | grep -E '^(partner-)' | grep -v '^\.' | grep -v '^build$' | grep -v '^gradle$' | grep -v '^\.gradle$' | grep -v '^\.github$')
+          
+          echo "Changed directories:"
+          echo "$changed_dirs"
+          
+          echo "Applications to build:"
+          echo "$changed_dirs"
+          
+          # JSON 배열로 변환 (공백 제거)
+          if [ -n "$changed_dirs" ]; then
+            changed_json=$(echo "$changed_dirs" | jq -R . | jq -s -c .)
+          else
+            changed_json="[]"
+          fi
+          echo "changed=$changed_json" >> $GITHUB_OUTPUT
+
+  build-and-deploy:
+    name: Build & Push Docker / Update GitOps
+    needs: detect-changes
+    runs-on: jscloud-github-action-runner-set
+    env:
+      AWS_REGION: ap-northeast-2
+      ECR_REPOSITORY: 설정필요
+      RUN_ID: ${{ github.run_id }}
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.changed_apps) }}
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (amazoncorretto)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '17'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-cache-${{ runner.os }}-
+
+      - name: Grant permission & Build Jar
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :${{ matrix.app }}:bootJar --console=plain --info --parallel --build-cache
+
+      - name: Build & Push Docker Image
+        run: |
+          ECR_NAME=${{ matrix.app }}
+          IMAGE=${{ env.ECR_REPOSITORY }}/$ECR_NAME
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY
+          docker build -t $IMAGE:$RUN_ID -f ${{ matrix.app }}/Dockerfile ${{ matrix.app }}
+          docker tag $IMAGE:$RUN_ID $IMAGE:$RUN_ID
+          docker push $IMAGE:$RUN_ID
+
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: js/js-repository
+          ref: main
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Update deployment manifest in GitOps repo
+        run: |
+          # 고유한 브랜치명 생성 (앱이름-실행ID-타임스탬프)
+          ECR_NAME="${{ matrix.app }}"
+          BRANCH_NAME="$ECR_NAME-$RUN_ID-$(date +%s)"
+          IMAGE=${{ env.ECR_REPOSITORY }}/$ECR_NAME
+          
+          # 새 브랜치 생성 및 전환
+          git checkout -b $BRANCH_NAME
+          
+          # 매니페스트 파일 업데이트
+          cd $ECR_NAME-jenkinsfile/yaml
+          cp ../yaml-original/$ECR_NAME-deployment.yaml .
+          sed -i "s|${{ env.ECR_REPOSITORY }}/$ECR_NAME:|${{ env.ECR_REPOSITORY }}/$ECR_NAME:${{ github.run_id }}|g" $ECR_NAME-deployment.yaml
+          
+          # 변경사항 커밋
+          git config user.name "jscloud-bot"
+          git config user.email "github-actions@jscloud.co.kr"
+          git add $ECR_NAME-deployment.yaml
+          git commit -m "Update $ECR_NAME to version $RUN_ID"
+          
+          # main 브랜치로 전환 및 최신화
+          git checkout main
+          git pull origin main
+          
+          # 로컬 브랜치를 main에 머지
+          git merge --no-ff $BRANCH_NAME -m "Merge $BRANCH_NAME: Update $ECR_NAME to version $RUN_ID"
+          
+          # 변경사항 푸시
+          git push origin main
+          
+          # 로컬 브랜치 삭제
+          git branch -D $BRANCH_NAME
+
+      - name: Notify Microsoft Teams
+        if: always()
+        run: |
+          ECR_NAME="${{ matrix.app }}"
+          if [ "${{ job.status }}" == "success" ]; then
+            COLOR="0076D7"
+            TITLE="✅ [${{ github.repository }}] $ECR_NAME 빌드 성공"
+            SUMMARY="빌드 성공"
+          else
+            COLOR="FF0000"
+            TITLE="❌ [${{ github.repository }}] $ECR_NAME 빌드 실패"
+            SUMMARY="빌드 실패 알림"
+          fi
+
+          curl -H 'Content-Type: application/json' \
+            -d "{
+                  \"@type\": \"MessageCard\",
+                  \"@context\": \"http://schema.org/extensions\",
+                  \"summary\": \"$SUMMARY\",
+                  \"themeColor\": \"$COLOR\",
+                  \"title\": \"$TITLE\",
+                  \"sections\": [{
+                    \"facts\": [
+                      { \"name\": \"앱\", \"value\": \"${{ matrix.app }}\" },
+                      { \"name\": \"ECR\", \"value\": \"$ECR_NAME\" },
+                      { \"name\": \"브랜치\", \"value\": \"${{ github.ref_name }}\" },
+                      { \"name\": \"작성자\", \"value\": \"${{ github.actor }}\" },
+                      { \"name\": \"이벤트\", \"value\": \"${{ github.event_name }}\" },
+                      { \"name\": \"상태\", \"value\": \"${{ job.status }}\" },
+                      { \"name\": \"커밋 메시지\", \"value\": \"${{ github.event.head_commit.message }}\" },
+                      { \"name\": \"커밋\", \"value\": \"${{ github.sha }}\" }
+                    ],
+                    \"text\": \"[🔍 로그 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\"
+                  }]
+                }" \
+            ${{ secrets.MSTEAMS_WEBHOOK }}

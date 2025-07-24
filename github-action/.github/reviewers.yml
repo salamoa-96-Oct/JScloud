@@ -1,0 +1,22 @@
+# 리뷰어 목록 설정
+# GitHub username과 Teams user ID를 매핑
+reviewers:
+  - githubName: "jscloud-js"  # 실제 GitHub username으로 변경 필요
+    teamsUserId: "jsmun@email-address"  # 실제 Teams user email로 변경 필요
+    name: "js"
+
+# Microsoft Teams 설정
+teams:
+  webhookUrl: "${{ secrets.MSTEAMS_WEBHOOK }}"  # Teams Webhook URL을 GitHub Secrets에 설정 필요
+  channelName: "Noti-Tech"  # Teams 채널 이름 
+
+"entities": [
+  {
+    "type": "mention",
+    "text": "<at>js</at>",
+    "mentioned": {
+      "id": "jsmun@email-address",
+      "name": "js"
+    }
+  }
+] 
